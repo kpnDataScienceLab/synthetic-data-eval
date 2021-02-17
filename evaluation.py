@@ -3,6 +3,7 @@ from dython.nominal import associations
 from sklearn.metrics import pairwise_distances
 from sklearn.metrics.pairwise import euclidean_distances
 from numpy import linalg as LA
+from numpy import asarray
 from scipy.special import rel_entr
 from scipy.spatial import distance
 import logging
@@ -60,7 +61,7 @@ class eval_metrics():
 
         eucl = LA.norm(eucl_matr)
 
-        return eucl
+        return eucl, eucl_matr
 
     def kolmogorov(self):
 
@@ -82,14 +83,38 @@ class eval_metrics():
         sample_real = real_cat[target_cols].reset_index(drop=True)
         sample_synth = synth_cat[target_cols].reset_index(drop=True)
 
-        p_value = 0.05
-        rejected = []
+        cols = {}
         for col in range(10):
             test = ks_2samp(sample_real.iloc[:, col], sample_synth.iloc[:, col])
-            if test[1] < p_value:
-                rejected.append(target_cols[col])
+            col_name = target_cols[col]
+            cols[col_name] = test[1]
 
-        return rejected
+        return cols
+
+    def jensen_shannon(self):
+
+        """ The Jensen-Shannon divergence, or JS divergence for short, is another way to quantify the difference
+        (or similarity) between two probability distributions. It uses the KL divergence to calculate a normalized score
+         that is symmetrical. It is more useful as a measure as it provides a smoothed and normalized version of
+         KL divergence, with scores between 0 (identical) and 1 (maximally different), when using the
+         base-2 logarithm.
+         The threshold limit for this function is value which should be less than 0.5 except for the CONTENT_ID column
+         which needs to be less than 0.75"""
+
+        target_columns = list(self.origdst.columns[11:-3])
+        target_columns.append(self.origdst.columns[4])  # content_id
+
+        js_dict = {}
+
+        for col in target_columns:
+            col_counts_orig = self.origdst[col].value_counts(normalize=True).sort_index(ascending=True)
+            col_counts_synth = self.synthdst[col].value_counts(normalize=True).sort_index(ascending=True)
+
+            js = distance.jensenshannon(asarray(col_counts_orig.tolist()), asarray(col_counts_synth.tolist()), base=2)
+
+            js_dict[col] = js
+
+        return js_dict
 
     def kl_divergence(self):
 
@@ -97,27 +122,18 @@ class eval_metrics():
         identical and measures the potential level of discrepancy between them.
         The threshold limit for this metric is a value below 2"""
 
-        target_columns = self.origdst.columns[11:-3]
+        target_columns = list(self.origdst.columns[11:-3])
+        target_columns.append(self.origdst.columns[4])  # content_id
 
         kl_dict = {}
 
         for col in target_columns:
-
-            col_counts_orig = self.origdst[col].value_counts()
-            col_counts_synth = self.synthdst[col].value_counts()
-
-            for i, k in col_counts_orig.items():
-                col_counts_orig[i] = k / col_counts_orig.sum()
-            for i, k in col_counts_synth.items():
-                col_counts_synth[i] = k / col_counts_synth.sum()
+            col_counts_orig = self.origdst[col].value_counts(normalize=True).sort_index(ascending=True)
+            col_counts_synth = self.synthdst[col].value_counts(normalize=True).sort_index(ascending=True)
 
             kl = sum(rel_entr(col_counts_orig.tolist(), col_counts_synth.tolist()))
 
             kl_dict[col] = kl
-
-            for key in list(kl_dict):
-                if kl_dict[key] < 2:
-                    del kl_dict[key]
 
         return kl_dict
 
@@ -143,7 +159,7 @@ class eval_metrics():
         substract_m = np.subtract(corr_real, corr_rand)
         prwcrdst = LA.norm(substract_m)
 
-        return prwcrdst
+        return prwcrdst, substract_m
 
 
 if __name__ == "__main__":
@@ -159,35 +175,70 @@ if __name__ == "__main__":
 
     # euclidean distance
     flag_eucl = False
-    eucl = ob.euclidean_dist()
-    print(eucl)
-    logger.info('Euclidean distance calculated')
+    eucl, eumatr = ob.euclidean_dist()
+    logger.info('Euclidean distance was calculated')
+    print('The calculated euclidean distance is: ', eucl)
+    print('The calculated euclidean distance matrix is:', eumatr)
     if eucl > 14:
         logger.error(f'The calculated Euclidean distance value between the two correlation matrices is too high it should be \
         less than 14. The current value is {eucl}')
+        logger.info(f'The Euclidean distance matrix is \n {eumatr}')
     else:
-        logger.info('The dataaset satisfies the criteria for the euclidean distance.')
+        logger.info('The dataset satisfies the criteria for the euclidean distance.')
+        logger.info(f'The Euclidean distance matrix is \n {eumatr}')
         flag_eucl = True
     logger.info('---------------------------------------------------------')
 
     # 2 sample Kolmogorov-Smirnov test
     kst = ob.kolmogorov()
+    p_value = 0.05
     flag_klg = False
-    print(kst)
-    logger.info('Kolmogorov-Smirnov test performed')
-    if kst:
+    logger.info('Kolmogorov-Smirnov test was performed')
+    print('The results of the Kolmogorov-Smirnov test is:', kst)
+    rejected = {}
+    for col in kst:
+        if kst[col] < p_value:
+            rejected[col] = kst[col]
+    if rejected:
         logger.info('The dataset did not pass the Kolmogorov-Smirnov test')
-        logger.info(f'The columns that did not pass the test are {kst}')
+        logger.info(f'The columns that did not pass the test are \n {rejected}')
     else:
         logger.info('The dataset passed the Kolmogorov-Smirnov test')
         flag_klg = True
     logger.info('---------------------------------------------------------')
 
+    # Jensen-Shannon Divergence
+    dict_js = ob.jensen_shannon()
+    logger.info('Jensen-Shannon Divergence was calculated')
+    print('The result of the Jensen-Shannon Divergence is:', dict_js)
+    flag_js = False
+
+    for key in list(dict_js):
+        if (dict_js[key] < 0.50) & (key != 'CONTENT_ID'):
+            del dict_js[key]
+        if key == 'CONTENT_ID':
+            if (dict_js[key] < 0.75):
+                del dict_js[key]
+
+    if dict_js:
+        logger.info('The dataset did not pass the Jensen-Shannon Divergence test')
+        for key in dict_js.keys():
+            logger.info(f'The Jensen-Shannon Divergence value for the column {key} was {dict_js[key]}')
+    else:
+        logger.info('The dataset passed the Jensen-Shannon Divergence test')
+        flag_js = True
+    logger.info('---------------------------------------------------------')
+
     # KL divergence
     dict_kl = ob.kl_divergence()
+    logger.info('KL divergence was calculated')
+    print('The result of the KL divergence is', dict_kl)
     flag_kl = False
-    print(dict_kl)
-    logger.info('KL divergence calculated')
+
+    for key in list(dict_kl):
+        if dict_kl[key] < 2.20:
+            del dict_kl[key]
+
     if dict_kl:
         logger.info('The dataset did not pass the KL divergence evaluation test')
         for key in dict_kl.keys():
@@ -198,18 +249,22 @@ if __name__ == "__main__":
     logger.info('---------------------------------------------------------')
 
     # pairwise correlation difference
-    pair_corr_diff = ob.pairwise_correlation_difference()
+    pair_corr_diff, pcd_matr = ob.pairwise_correlation_difference()
+    logger.info('Pairwise correlation difference was calculated')
+    print('The calculated Pairwise correlation difference was', pair_corr_diff)
+    print('The calculated Pairwise correlation difference matrix was', pcd_matr)
+
     flag_pcd = False
-    print(pair_corr_diff)
-    logger.info('Pairwise correlation difference calculated')
     if pair_corr_diff > 2.4:
         logger.error(f'The calculated Euclidean distance value between the two correlation matrices is too high it should be \
         less than 14. The current value is {pair_corr_diff}')
+        logger.info(f'The Pairwise distance distance matrix is \n {pcd_matr}')
     else:
         logger.info('The dataaset satisfies the criteria for the Pairwise Correlation Difference.')
+        logger.info(f'The Pairwise distance distance matrix is \n {pcd_matr}')
         flag_pcd = True
 
-    if (flag_eucl & flag_klg & flag_kl & flag_pcd):
+    if (flag_eucl & flag_js & flag_klg & flag_kl & flag_pcd):
         logger.info('The dataaset satisfies the minimum evaluation criteria.')
     else:
         logger.info('The dataaset does not satisfy the minimum evaluation criteria.')
