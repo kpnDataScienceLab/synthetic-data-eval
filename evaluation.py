@@ -21,12 +21,35 @@ class eval_metrics():
         self.synthdst = synthdst
 
     @staticmethod
-    def to_cat(dtf):
-        for col in list(dtf.columns[11:-3]):
-            if type(dtf[col][0]) == str:
-                dtf[col] = dtf[col].astype('category').cat.codes
+    def to_cat(dtr, dts):
 
-        return dtf
+        target_cols = dtr.columns[11:-3]
+
+        #         flag_same_demographic_column_values = True
+
+        for col in target_cols:
+
+            assigned_categories_real = dtr[col].astype('category')
+            assigned_categories_synthetic = dts[col].astype('category')
+
+            categories_real_dict = dict(enumerate(assigned_categories_real.cat.categories))
+            categories_real_synthetic = dict(enumerate(assigned_categories_synthetic.cat.categories))
+
+            if (categories_real_dict == categories_real_synthetic):
+                print('For the column ', col, ' the assigned categories are the same for both datasets')
+                print('================')
+            else:
+                for key in categories_real_dict.keys():
+                    if key not in categories_real_synthetic.keys():
+                        print('The value ', key, ' was not found in column ', col, ' in the synthetic dataset.')
+                    #                         flag_same_demographic_column_values = False
+                    else:
+                        categories_real_synthetic[key] = categories_real_dict[key]
+
+            dtr[col] = assigned_categories_real.cat.codes
+            dts[col] = assigned_categories_synthetic.cat.codes
+
+        return dtr, dts
 
     @staticmethod
     def get_demographics(df):
@@ -45,8 +68,7 @@ class eval_metrics():
         tool preserves the patterns.
         The threshold limit for this metric is a value below 14."""
 
-        real_cat = self.to_cat(self.origdst)
-        synth_cat = self.to_cat(self.synthdst)
+        real_cat, synth_cat = self.to_cat(self.origdst, self.synthdst)
 
         real_cat_dem = self.get_demographics(real_cat)
         synth_cat_dem = self.get_demographics(synth_cat)
@@ -70,8 +92,7 @@ class eval_metrics():
         probable that the two distributions are different.
         The threshold limit for this function is a list containing less than 10 elements"""
 
-        real_cat = self.to_cat(self.origdst)
-        synth_cat = self.to_cat(self.synthdst)
+        real_cat, synth_cat = self.to_cat(self.origdst, self.synthdst)
 
         real_cat = real_cat[
             real_cat['iab_category_Family and Relationships'].notnull() & real_cat['iab_category_Travel'].notnull()]
@@ -87,19 +108,13 @@ class eval_metrics():
         for col in range(10):
             test = ks_2samp(sample_real.iloc[:, col], sample_synth.iloc[:, col])
             col_name = target_cols[col]
-            cols[col_name] = test[1]
+            cols[col_name] = {'statistic': test[0], 'p-value': test[1]}
 
         return cols
 
     def jensen_shannon(self):
 
-        """ The Jensen-Shannon divergence, or JS divergence for short, is another way to quantify the difference
-        (or similarity) between two probability distributions. It uses the KL divergence to calculate a normalized score
-         that is symmetrical. It is more useful as a measure as it provides a smoothed and normalized version of
-         KL divergence, with scores between 0 (identical) and 1 (maximally different), when using the
-         base-2 logarithm.
-         The threshold limit for this function is value which should be less than 0.5 except for the CONTENT_ID column
-         which needs to be less than 0.75"""
+        real_cat, synth_cat = self.to_cat(self.origdst, self.synthdst)
 
         target_columns = list(self.origdst.columns[11:-3])
         target_columns.append(self.origdst.columns[4])  # content_id
@@ -107,8 +122,8 @@ class eval_metrics():
         js_dict = {}
 
         for col in target_columns:
-            col_counts_orig = self.origdst[col].value_counts(normalize=True).sort_index(ascending=True)
-            col_counts_synth = self.synthdst[col].value_counts(normalize=True).sort_index(ascending=True)
+            col_counts_orig = real_cat[col].value_counts(normalize=True).sort_index(ascending=True)
+            col_counts_synth = synth_cat[col].value_counts(normalize=True).sort_index(ascending=True)
 
             js = distance.jensenshannon(asarray(col_counts_orig.tolist()), asarray(col_counts_synth.tolist()), base=2)
 
@@ -144,8 +159,7 @@ class eval_metrics():
         the variables.
         The threshold limit for this metric is a value below 2.4 """
 
-        real_cat = self.to_cat(self.origdst)
-        synth_cat = self.to_cat(self.synthdst)
+        real_cat, synth_cat = self.to_cat(self.origdst, self.synthdst)
 
         real_cat_dem = self.get_demographics(real_cat)
         synth_cat_dem = self.get_demographics(synth_cat)
@@ -171,7 +185,7 @@ if __name__ == "__main__":
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
-    ob = eval_metrics(real, random)
+    ob = eval_metrics(r, ra)
 
     # euclidean distance
     flag_eucl = False
@@ -185,25 +199,29 @@ if __name__ == "__main__":
         logger.info(f'The Euclidean distance matrix is \n {eumatr}')
     else:
         logger.info('The dataset satisfies the criteria for the euclidean distance.')
+        logger.info(f'The calculated Euclidean distance value is \n {eucl}')
         logger.info(f'The Euclidean distance matrix is \n {eumatr}')
         flag_eucl = True
     logger.info('---------------------------------------------------------')
 
     # 2 sample Kolmogorov-Smirnov test
     kst = ob.kolmogorov()
+
     p_value = 0.05
     flag_klg = False
     logger.info('Kolmogorov-Smirnov test was performed')
     print('The results of the Kolmogorov-Smirnov test is:', kst)
     rejected = {}
     for col in kst:
-        if kst[col] < p_value:
+        if kst[col]['p-value'] < p_value:
             rejected[col] = kst[col]
     if rejected:
         logger.info('The dataset did not pass the Kolmogorov-Smirnov test')
         logger.info(f'The columns that did not pass the test are \n {rejected}')
+        logger.info(f'The overall performance for the Kolmogorov-Smirnov test is \n {kst}')
     else:
         logger.info('The dataset passed the Kolmogorov-Smirnov test')
+        logger.info(f'The overall performance for the Kolmogorov-Smirnov test is \n {kst}')
         flag_klg = True
     logger.info('---------------------------------------------------------')
 
@@ -212,6 +230,8 @@ if __name__ == "__main__":
     logger.info('Jensen-Shannon Divergence was calculated')
     print('The result of the Jensen-Shannon Divergence is:', dict_js)
     flag_js = False
+
+    jsd = deepcopy(dict_js)
 
     for key in list(dict_js):
         if (dict_js[key] < 0.50) & (key != 'CONTENT_ID'):
@@ -224,8 +244,10 @@ if __name__ == "__main__":
         logger.info('The dataset did not pass the Jensen-Shannon Divergence test')
         for key in dict_js.keys():
             logger.info(f'The Jensen-Shannon Divergence value for the column {key} was {dict_js[key]}')
+        logger.info(f'The overall performance for the Jensen-Shannon Divergence test for each column is summarized below: \n {jsd}')
     else:
         logger.info('The dataset passed the Jensen-Shannon Divergence test')
+        logger.info(f'The overall performance for the Jensen-Shannon Divergence test for each column is summarized below: \n {jsd}')
         flag_js = True
     logger.info('---------------------------------------------------------')
 
@@ -235,6 +257,8 @@ if __name__ == "__main__":
     print('The result of the KL divergence is', dict_kl)
     flag_kl = False
 
+    kl = deepcopy(dict_kl)
+
     for key in list(dict_kl):
         if dict_kl[key] < 2.20:
             del dict_kl[key]
@@ -243,8 +267,10 @@ if __name__ == "__main__":
         logger.info('The dataset did not pass the KL divergence evaluation test')
         for key in dict_kl.keys():
             logger.info(f'The KL divergence value for the column {key} was {dict_kl[key]}')
+        logger.info(f'The overall for the KL divergence performance for each column is summarized below: \n {kl}')
     else:
         logger.info('The dataset passed the KL divergence evaluation test')
+        logger.info(f'The overall performance for the KL divergence for each column is summarized below: \n {kl}')
         flag_kl = True
     logger.info('---------------------------------------------------------')
 
@@ -261,6 +287,7 @@ if __name__ == "__main__":
         logger.info(f'The Pairwise distance distance matrix is \n {pcd_matr}')
     else:
         logger.info('The dataaset satisfies the criteria for the Pairwise Correlation Difference.')
+        logger.info(f'The Pairwise distance distance value is \n {pair_corr_diff}')
         logger.info(f'The Pairwise distance distance matrix is \n {pcd_matr}')
         flag_pcd = True
 
