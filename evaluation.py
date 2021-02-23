@@ -23,7 +23,8 @@ class eval_metrics():
     @staticmethod
     def to_cat(dtr, dts):
 
-        target_cols = dtr.columns[11:-3]
+        target_cols = list(dtr.columns[11:-3])
+        target_cols.insert(0, dtr.columns[3])  # genre
 
         #         flag_same_demographic_column_values = True
 
@@ -41,7 +42,7 @@ class eval_metrics():
             else:
                 for key in categories_real_dict.keys():
                     if key not in categories_real_synthetic.keys():
-                        print('The value ', key, ' was not found in column ', col, ' in the synthetic dataset.')
+                        print('The value ', key, ' was not found in column ', col)
                     #                         flag_same_demographic_column_values = False
                     else:
                         categories_real_synthetic[key] = categories_real_dict[key]
@@ -117,7 +118,7 @@ class eval_metrics():
         real_cat, synth_cat = self.to_cat(self.origdst, self.synthdst)
 
         target_columns = list(self.origdst.columns[11:-3])
-        target_columns.append(self.origdst.columns[4])  # content_id
+        target_columns.append(self.origdst.columns[3])  # genre
 
         js_dict = {}
 
@@ -175,124 +176,123 @@ class eval_metrics():
 
         return prwcrdst, substract_m
 
+    if __name__ == "__main__":
 
-if __name__ == "__main__":
+        logging.basicConfig(filename='evaluation.log',
+                            format='%(asctime)s %(message)s',
+                            filemode='w')
 
-    logging.basicConfig(filename='evaluation.log',
-                        format='%(asctime)s %(message)s',
-                        filemode='w')
+        logger = logging.getLogger()
+        logger.setLevel(logging.INFO)
 
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+        ob = eval_metrics(r, ra)
 
-    ob = eval_metrics(r, ra)
+        # euclidean distance
+        flag_eucl = False
+        eucl, eumatr = ob.euclidean_dist()
+        logger.info('Euclidean distance was calculated')
+        print('The calculated euclidean distance is: ', eucl)
+        print('The calculated euclidean distance matrix is:', eumatr)
+        if eucl > 14:
+            logger.error(f'The calculated Euclidean distance value between the two correlation matrices is too high it should be \
+            less than 14. The current value is {eucl}')
+            logger.info(f'The Euclidean distance matrix is \n {eumatr}')
+        else:
+            logger.info('The dataset satisfies the criteria for the euclidean distance.')
+            logger.info(f'The calculated Euclidean distance value is \n {eucl}')
+            logger.info(f'The Euclidean distance matrix is \n {eumatr}')
+            flag_eucl = True
+        logger.info('---------------------------------------------------------')
 
-    # euclidean distance
-    flag_eucl = False
-    eucl, eumatr = ob.euclidean_dist()
-    logger.info('Euclidean distance was calculated')
-    print('The calculated euclidean distance is: ', eucl)
-    print('The calculated euclidean distance matrix is:', eumatr)
-    if eucl > 14:
-        logger.error(f'The calculated Euclidean distance value between the two correlation matrices is too high it should be \
-        less than 14. The current value is {eucl}')
-        logger.info(f'The Euclidean distance matrix is \n {eumatr}')
-    else:
-        logger.info('The dataset satisfies the criteria for the euclidean distance.')
-        logger.info(f'The calculated Euclidean distance value is \n {eucl}')
-        logger.info(f'The Euclidean distance matrix is \n {eumatr}')
-        flag_eucl = True
-    logger.info('---------------------------------------------------------')
+        # 2 sample Kolmogorov-Smirnov test
+        kst = ob.kolmogorov()
 
-    # 2 sample Kolmogorov-Smirnov test
-    kst = ob.kolmogorov()
+        p_value = 0.05
+        flag_klg = False
+        logger.info('Kolmogorov-Smirnov test was performed')
+        print('The results of the Kolmogorov-Smirnov test is:', kst)
+        rejected = {}
+        for col in kst:
+            if kst[col]['p-value'] < p_value:
+                rejected[col] = kst[col]
+        if rejected:
+            logger.info('The dataset did not pass the Kolmogorov-Smirnov test')
+            logger.info(f'The columns that did not pass the test are \n {rejected}')
+            logger.info(f'The overall performance for the test is \n {kst}')
+        else:
+            logger.info('The dataset passed the Kolmogorov-Smirnov test')
+            logger.info(f'The overall performance for the test is \n {kst}')
+            flag_klg = True
+        logger.info('---------------------------------------------------------')
 
-    p_value = 0.05
-    flag_klg = False
-    logger.info('Kolmogorov-Smirnov test was performed')
-    print('The results of the Kolmogorov-Smirnov test is:', kst)
-    rejected = {}
-    for col in kst:
-        if kst[col]['p-value'] < p_value:
-            rejected[col] = kst[col]
-    if rejected:
-        logger.info('The dataset did not pass the Kolmogorov-Smirnov test')
-        logger.info(f'The columns that did not pass the test are \n {rejected}')
-        logger.info(f'The overall performance for the Kolmogorov-Smirnov test is \n {kst}')
-    else:
-        logger.info('The dataset passed the Kolmogorov-Smirnov test')
-        logger.info(f'The overall performance for the Kolmogorov-Smirnov test is \n {kst}')
-        flag_klg = True
-    logger.info('---------------------------------------------------------')
+        # Jensen-Shannon Divergence
+        dict_js = ob.jensen_shannon()
+        logger.info('Jensen-Shannon Divergence was calculated')
+        print('The result of the Jensen-Shannon Divergence is:', dict_js)
+        flag_js = False
 
-    # Jensen-Shannon Divergence
-    dict_js = ob.jensen_shannon()
-    logger.info('Jensen-Shannon Divergence was calculated')
-    print('The result of the Jensen-Shannon Divergence is:', dict_js)
-    flag_js = False
+        jsd = deepcopy(dict_js)
 
-    jsd = deepcopy(dict_js)
-
-    for key in list(dict_js):
-        if (dict_js[key] < 0.50) & (key != 'CONTENT_ID'):
-            del dict_js[key]
-        if key == 'CONTENT_ID':
-            if (dict_js[key] < 0.75):
+        for key in list(dict_js):
+            if (dict_js[key] < 0.50) & (key != 'CONTENT_ID'):
                 del dict_js[key]
+            if key == 'CONTENT_ID':
+                if (dict_js[key] < 0.75):
+                    del dict_js[key]
 
-    if dict_js:
-        logger.info('The dataset did not pass the Jensen-Shannon Divergence test')
-        for key in dict_js.keys():
-            logger.info(f'The Jensen-Shannon Divergence value for the column {key} was {dict_js[key]}')
-        logger.info(f'The overall performance for the Jensen-Shannon Divergence test for each column is summarized below: \n {jsd}')
-    else:
-        logger.info('The dataset passed the Jensen-Shannon Divergence test')
-        logger.info(f'The overall performance for the Jensen-Shannon Divergence test for each column is summarized below: \n {jsd}')
-        flag_js = True
-    logger.info('---------------------------------------------------------')
+        if dict_js:
+            logger.info('The dataset did not pass the Jensen-Shannon Divergence test')
+            for key in dict_js.keys():
+                logger.info(f'The Jensen-Shannon Divergence value for the column {key} was {dict_js[key]}')
+            logger.info(f'The overall performance for each column is summarized below: \n {jsd}')
+        else:
+            logger.info('The dataset passed the Jensen-Shannon Divergence test')
+            logger.info(f'The overall performance for each column is summarized below: \n {jsd}')
+            flag_js = True
+        logger.info('---------------------------------------------------------')
 
-    # KL divergence
-    dict_kl = ob.kl_divergence()
-    logger.info('KL divergence was calculated')
-    print('The result of the KL divergence is', dict_kl)
-    flag_kl = False
+        # KL divergence
+        dict_kl = ob.kl_divergence()
+        logger.info('KL divergence was calculated')
+        print('The result of the KL divergence is', dict_kl)
+        flag_kl = False
 
-    kl = deepcopy(dict_kl)
+        kl = deepcopy(dict_kl)
 
-    for key in list(dict_kl):
-        if dict_kl[key] < 2.20:
-            del dict_kl[key]
+        for key in list(dict_kl):
+            if dict_kl[key] < 2.20:
+                del dict_kl[key]
 
-    if dict_kl:
-        logger.info('The dataset did not pass the KL divergence evaluation test')
-        for key in dict_kl.keys():
-            logger.info(f'The KL divergence value for the column {key} was {dict_kl[key]}')
-        logger.info(f'The overall for the KL divergence performance for each column is summarized below: \n {kl}')
-    else:
-        logger.info('The dataset passed the KL divergence evaluation test')
-        logger.info(f'The overall performance for the KL divergence for each column is summarized below: \n {kl}')
-        flag_kl = True
-    logger.info('---------------------------------------------------------')
+        if dict_kl:
+            logger.info('The dataset did not pass the KL divergence evaluation test')
+            for key in dict_kl.keys():
+                logger.info(f'The KL divergence value for the column {key} was {dict_kl[key]}')
+            logger.info(f'The overall for the KL divergence performance for each column is summarized below: \n {kl}')
+        else:
+            logger.info('The dataset passed the KL divergence evaluation test')
+            logger.info(f'The overall performance for the KL divergence for each column is summarized below: \n {kl}')
+            flag_kl = True
+        logger.info('---------------------------------------------------------')
 
-    # pairwise correlation difference
-    pair_corr_diff, pcd_matr = ob.pairwise_correlation_difference()
-    logger.info('Pairwise correlation difference was calculated')
-    print('The calculated Pairwise correlation difference was', pair_corr_diff)
-    print('The calculated Pairwise correlation difference matrix was', pcd_matr)
+        # pairwise correlation difference
+        pair_corr_diff, pcd_matr = ob.pairwise_correlation_difference()
+        logger.info('Pairwise correlation difference was calculated')
+        print('The calculated Pairwise correlation difference was', pair_corr_diff)
+        print('The calculated Pairwise correlation difference matrix was', pcd_matr)
 
-    flag_pcd = False
-    if pair_corr_diff > 2.4:
-        logger.error(f'The calculated Euclidean distance value between the two correlation matrices is too high it should be \
-        less than 14. The current value is {pair_corr_diff}')
-        logger.info(f'The Pairwise distance distance matrix is \n {pcd_matr}')
-    else:
-        logger.info('The dataaset satisfies the criteria for the Pairwise Correlation Difference.')
-        logger.info(f'The Pairwise distance distance value is \n {pair_corr_diff}')
-        logger.info(f'The Pairwise distance distance matrix is \n {pcd_matr}')
-        flag_pcd = True
+        flag_pcd = False
+        if pair_corr_diff > 2.4:
+            logger.error(f'The calculated Euclidean distance value between the two correlation matrices is too high it should be \
+            less than 14. The current value is {pair_corr_diff}')
+            logger.info(f'The Pairwise distance distance matrix is \n {pcd_matr}')
+        else:
+            logger.info('The dataaset satisfies the criteria for the Pairwise Correlation Difference.')
+            logger.info(f'The Pairwise distance distance value is \n {pair_corr_diff}')
+            logger.info(f'The Pairwise distance distance matrix is \n {pcd_matr}')
+            flag_pcd = True
 
-    if (flag_eucl & flag_js & flag_klg & flag_kl & flag_pcd):
-        logger.info('The dataaset satisfies the minimum evaluation criteria.')
-    else:
-        logger.info('The dataaset does not satisfy the minimum evaluation criteria.')
-        logger.info('Plese check the previous log messages.')
+        if (flag_eucl & flag_js & flag_klg & flag_kl & flag_pcd):
+            logger.info('The dataaset satisfies the minimum evaluation criteria.')
+        else:
+            logger.info('The dataaset does not satisfy the minimum evaluation criteria.')
+            logger.info('Plese check the previous log messages.')
