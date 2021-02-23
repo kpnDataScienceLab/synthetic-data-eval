@@ -26,7 +26,8 @@ class eval_metrics():
     @staticmethod
     def to_cat(dtr, dts):
 
-        target_cols = dtr.columns[11:-3]
+        target_cols = list(dtr.columns[11:-3])
+        target_cols.insert(0, dtr.columns[3])  # genre
 
         #         flag_same_demographic_column_values = True
 
@@ -44,7 +45,7 @@ class eval_metrics():
             else:
                 for key in categories_real_dict.keys():
                     if key not in categories_real_synthetic.keys():
-                        print('The value ', key, ' was not found in column ', col, ' in the synthetic dataset.')
+                        print('The value ', key, ' was not found in column ', col)
                     #                         flag_same_demographic_column_values = False
                     else:
                         categories_real_synthetic[key] = categories_real_dict[key]
@@ -120,7 +121,7 @@ class eval_metrics():
         real_cat, synth_cat = self.to_cat(self.origdst, self.synthdst)
 
         target_columns = list(self.origdst.columns[11:-3])
-        target_columns.append(self.origdst.columns[4])  # content_id
+        target_columns.append(self.origdst.columns[3])  # content_id
 
         js_dict = {}
 
