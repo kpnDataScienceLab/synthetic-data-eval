@@ -14,6 +14,7 @@ import copy
 from scipy.stats import ks_2samp
 from datetime import datetime
 
+
 class eval_metrics():
     """The goal of the evaluation script is to measure how well the generated synthetic dataset preserves
     the characteristics that exist between the attributes in the original dataset. """
