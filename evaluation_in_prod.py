@@ -27,6 +27,8 @@ class eval_metrics():
     def to_cat(dtr, dts):
 
         target_cols = list(dtr.columns[11:-3])
+        target_cols.insert(0, dtr.columns[1])  # channel
+        target_cols.insert(0, dtr.columns[2])  # program_title
         target_cols.insert(0, dtr.columns[3])  # genre
 
         #         flag_same_demographic_column_values = True
@@ -121,17 +123,28 @@ class eval_metrics():
         real_cat, synth_cat = self.to_cat(self.origdst, self.synthdst)
 
         target_columns = list(self.origdst.columns[11:-3])
-        target_columns.append(self.origdst.columns[3])  # content_id
+        target_columns.append(self.origdst.columns[1])  # channel
+        target_columns.append(self.origdst.columns[2])  # program_title
+        target_columns.append(self.origdst.columns[3])  # genre
 
         js_dict = {}
 
         for col in target_columns:
-            col_counts_orig = real_cat[col].value_counts(normalize=True).sort_index(ascending=True)
-            col_counts_synth = synth_cat[col].value_counts(normalize=True).sort_index(ascending=True)
 
-            js = distance.jensenshannon(asarray(col_counts_orig.tolist()), asarray(col_counts_synth.tolist()), base=2)
+            try:
+                col_counts_orig = real_cat[col].value_counts(normalize=True).sort_index(ascending=True)
+                col_counts_synth = synth_cat[col].value_counts(normalize=True).sort_index(ascending=True)
 
-            js_dict[col] = js
+                js = distance.jensenshannon(asarray(col_counts_orig.tolist()), asarray(col_counts_synth.tolist()),
+                                            base=2)
+
+                js_dict[col] = js
+
+            except:
+
+                print('For the column ', col, ' you must generate the same unique values as the real dataset.')
+                print('The number of unique values than you should generate for column ', col, 'is ',
+                      len(self.origdst[col].unique()))
 
         return js_dict
 
@@ -142,17 +155,28 @@ class eval_metrics():
         The threshold limit for this metric is a value below 2"""
 
         target_columns = list(self.origdst.columns[11:-3])
-        target_columns.append(self.origdst.columns[4])  # content_id
+        target_columns.append(self.origdst.columns[1])  # channel
+        target_columns.append(self.origdst.columns[2])  # program_title
+        target_columns.append(self.origdst.columns[3])  # genre
 
         kl_dict = {}
 
         for col in target_columns:
-            col_counts_orig = self.origdst[col].value_counts(normalize=True).sort_index(ascending=True)
-            col_counts_synth = self.synthdst[col].value_counts(normalize=True).sort_index(ascending=True)
 
-            kl = sum(rel_entr(col_counts_orig.tolist(), col_counts_synth.tolist()))
+            try:
 
-            kl_dict[col] = kl
+                col_counts_orig = self.origdst[col].value_counts(normalize=True).sort_index(ascending=True)
+                col_counts_synth = self.synthdst[col].value_counts(normalize=True).sort_index(ascending=True)
+
+                kl = sum(rel_entr(col_counts_orig.tolist(), col_counts_synth.tolist()))
+
+                kl_dict[col] = kl
+
+            except:
+
+                print('For the column ', col, ' you must generate the same unique values as the real dataset.')
+                print('The number of unique values than you should generate for column ', col, 'is ',
+                      len(self.origdst[col].unique()))
 
         return kl_dict
 
@@ -275,10 +299,13 @@ if __name__ == "__main__":
     jsd = copy.deepcopy(dict_js)
 
     for key in list(dict_js):
-        if (dict_js[key] < 0.50) & (key != 'CONTENT_ID'):
+        if (dict_js[key] < 0.50) & (key not in ['GENRE', 'PROGRAM_TITLE']):
             del dict_js[key]
-        if key == 'CONTENT_ID':
-            if (dict_js[key] < 0.75):
+        if key == 'GENRE':
+            if (dict_js[key] < 0.59):
+                del dict_js[key]
+        if key == 'PROGRAM_TITLE':
+            if (dict_js[key] < 0.69):
                 del dict_js[key]
 
     if dict_js:
